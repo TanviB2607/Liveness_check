@@ -401,7 +401,7 @@ class ActiveLivenessTracker:
 
         elif self.current_action == "NOD":
 
-            nod_threshold = self.down_thr * 0.7
+            nod_threshold = self.down_thr * 0.8
 
             self.sustain = self.sustain + 1 if off_y > nod_threshold else 0
 
