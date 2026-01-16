@@ -1,0 +1,69 @@
+# --------------------
+# Python
+# --------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# --------------------
+# Virtual Environment
+# --------------------
+venv/
+env/
+.venv/
+
+# --------------------
+# Environment files
+# --------------------
+.env
+.env.local
+
+# --------------------
+# IDE / Editor
+# --------------------
+.vscode/
+.idea/
+*.swp
+
+# --------------------
+# OS files
+# --------------------
+.DS_Store
+Thumbs.db
+
+# --------------------
+# Uploads / temp
+# --------------------
+static/uploads/
+uploads/
+*.mp4
+*.webm
+*.jpg
+*.png
+
+# --------------------
+# Models / Weights
+# --------------------
+weights/
+models/
+*.onnx
+*.h5
+
+# --------------------
+# Cache
+# --------------------
+.cache/
+pytest_cache/
+
+# --------------------
+# Node (if frontend build later)
+# --------------------
+node_modules/
+
+# --------------------
+# Secrets
+# --------------------
+config.py
+secrets.py
