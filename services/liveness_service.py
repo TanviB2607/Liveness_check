@@ -408,6 +408,18 @@ class ActiveLivenessTracker:
             if self.sustain >= self.SUSTAIN_FRAMES:
                 self._next_action()
                 return "IN_PROGRESS", {"action_done": True}
+        
+        
+        # elif self.current_action == "NOD":
+
+        #     # Make nod harder (require bigger movement)
+        #     nod_threshold = 0.75
+
+        #     self.sustain = self.sustain + 1 if off_y > nod_threshold else 0
+
+        #     if self.sustain >= self.SUSTAIN_FRAMES:
+        #         self._next_action()
+        #         return "IN_PROGRESS", {"action_done": True}
 
 
         elif self.current_action == "BLINK" and ear:

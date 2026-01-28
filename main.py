@@ -154,6 +154,8 @@ import numpy as np
 import cv2
 
 from services.liveness_service import LivenessService, ActiveLivenessTracker
+from services.spoof_service import SpoofDetector
+
 
 # --------------------------------------------------
 # App setup
@@ -171,6 +173,7 @@ socketio = SocketIO(
 PORT = int(os.getenv("FLASK_PORT", "5002"))
 
 live_service = LivenessService()
+spoof_model = SpoofDetector()
 
 # per-client sessions
 SESSIONS = {}
@@ -339,9 +342,28 @@ def ws_frame(jpeg_bytes):
     i = sess["frames_seen"]
     sess["frames_seen"] += 1
 
-    tracker = sess["tracker"]
+    # ✅ DEFAULT VALUES (IMPORTANT)
+    is_spoof = False
+    score = 1.0
 
+    # 🔐 SPOOF CHECK (every 5 frames)
+    if i % 5 == 0:
+        is_spoof, score = spoof_model.predict(frame)
+
+    if is_spoof:
+        emit("server_update", {
+            "status": "FAILED",
+            "instruction": "❌ Spoof detected",
+            "reason": "SPOOF_ATTACK",
+            "confidence": round(score, 3)
+        })
+        SESSIONS.pop(sid, None)
+        return
+
+    tracker = sess["tracker"]
     status, meta = tracker.update(frame, i)
+
+    
 
     # ---------------- FAILED ----------------
 
