@@ -146,6 +146,302 @@
 
 
 
+# OG CODE
+# from flask import Flask, jsonify, send_from_directory, request
+# from flask_socketio import SocketIO, emit
+# import os
+# import time
+# import numpy as np
+# import cv2
+
+# from services.liveness_service import LivenessService, ActiveLivenessTracker
+
+# # --------------------------------------------------
+# # App setup
+# # --------------------------------------------------
+
+# app = Flask(__name__)
+# app.config["SECRET_KEY"] = "dev"
+
+# socketio = SocketIO(
+#     app,
+#     cors_allowed_origins="*",
+#     async_mode="threading"  # Windows safe
+# )
+
+# PORT = int(os.getenv("FLASK_PORT", "5002"))
+
+# live_service = LivenessService()
+
+# # per-client sessions
+# SESSIONS = {}
+# TTL_SECONDS = 60
+
+# # --------------------------------------------------
+# # Helpers
+# # --------------------------------------------------
+
+# def instruction_for(action: str):
+#     if action == "LEFT":
+#         return "Turn your head LEFT 👈"
+#     if action == "RIGHT":
+#         return "Turn your head RIGHT 👉"
+#     if action == "BLINK":
+#         return "Blink your eyes 👁️"
+#     if action == "SMILE":
+#         return "Smile 🙂"
+#     if action == "NOD":
+#         return "Nod your head up & down ⬆️⬇️"
+#     return "Follow the instructions"
+
+
+# def decode_jpeg_to_bgr(jpeg_bytes: bytes):
+#     arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+#     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+#     return img
+
+
+# def is_face_aligned(frame):
+#     h, w, _ = frame.shape
+#     cx, cy = w // 2, h // 2
+
+#     margin_x = w * 0.15
+#     margin_y = h * 0.15
+
+#     return (
+#         cx > margin_x and cx < w - margin_x
+#         and cy > margin_y and cy < h - margin_y
+#     )
+
+# # --------------------------------------------------
+# # Routes
+# # --------------------------------------------------
+
+# @app.get("/")
+# def index():
+#     return send_from_directory(".", "upload.html")
+
+
+# @app.get("/health")
+# def health():
+#     return jsonify({"ok": True, "port": PORT})
+
+# # --------------------------------------------------
+# # WebSocket
+# # --------------------------------------------------
+
+# @socketio.on("connect")
+# def ws_connect():
+#     emit(
+#         "server_update",
+#         {
+#             "status": "IN_PROGRESS",
+#             "action": "START",
+#             "instruction": "Connected ✅ Click Start",
+#         },
+#     )
+
+
+# @socketio.on("liveness_start")
+# def ws_start():
+#     sid = request.sid
+
+#     tracker = ActiveLivenessTracker(live_service.face_mesh)
+#     SESSIONS[sid] = {
+#         "tracker": tracker,
+#         "frames_seen": 0,
+#         "last_seen": time.time(),
+#         "passed": False,
+#     }
+
+#     emit(
+#         "server_update",
+#         {
+#             "status": "IN_PROGRESS",
+#             "action": tracker.current_action,
+#             "instruction": instruction_for(tracker.current_action),
+#         },
+#     )
+
+
+# @socketio.on("liveness_frame")
+# def ws_frame(jpeg_bytes):
+#     sid = request.sid
+#     sess = SESSIONS.get(sid)
+
+#     if not sess:
+#         return
+
+#     now = time.time()
+
+#     # ---------------- GREEN BUFFER HOLD ----------------
+#     if sess.get("hold_green"):
+#         if now - sess["last_action_time"] < 3:
+#             emit(
+#                 "server_update",
+#                 {
+#                     "status": "IN_PROGRESS",
+#                     "instruction": "✅ Action completed!",
+#                     "face_aligned": True,
+#                 },
+#             )
+#             return
+#         else:
+#             sess["hold_green"] = False
+
+#             tracker = sess["tracker"]
+
+#             # ✅ ALL ACTIONS DONE
+#             if tracker.current_action is None:
+#                 emit(
+#                     "server_update",
+#                     {
+#                         "status": "PASSED",
+#                         "instruction": "✅ Liveness PASSED Successfully",
+#                         "face_aligned": True,
+#                     },
+#                 )
+#                 SESSIONS.pop(sid, None)
+#                 return
+
+#             # ➡️ NEXT ACTION EXISTS
+#             emit(
+#                 "server_update",
+#                 {
+#                     "status": "IN_PROGRESS",
+#                     "instruction": instruction_for(tracker.current_action),
+#                     "face_aligned": False,
+#                 },
+#             )
+#             return
+
+#     # ---------------- FRAME DECODE ----------------
+#     if isinstance(jpeg_bytes, bytearray):
+#         jpeg_bytes = bytes(jpeg_bytes)
+
+#     frame = decode_jpeg_to_bgr(jpeg_bytes)
+#     if frame is None:
+#         return
+
+#     i = sess["frames_seen"]
+#     sess["frames_seen"] += 1
+
+#     tracker = sess["tracker"]
+#     status, meta = tracker.update(frame, i)
+
+#     # ---------------- FAILED ----------------
+#     if status == "FAILED":
+#         emit(
+#             "server_update",
+#             {
+#                 "status": "FAILED",
+#                 "instruction": "❌ Time up! Action not performed",
+#                 "reason": meta,
+#             },
+#         )
+#         SESSIONS.pop(sid, None)
+#         return
+
+#     # ---------------- PASSED ----------------
+#     if status == "PASSED":
+#         emit(
+#             "server_update",
+#             {
+#                 "status": "PASSED",
+#                 "instruction": "✅ Liveness PASSED Successfully",
+#                 "face_aligned": True,
+#             },
+#         )
+#         SESSIONS.pop(sid, None)
+#         return
+
+#     # ---------------- ACTION COMPLETED ----------------
+#     if meta.get("action_done"):
+#         sess["hold_green"] = True
+#         sess["last_action_time"] = now
+
+#         emit(
+#             "server_update",
+#             {
+#                 "status": "IN_PROGRESS",
+#                 "instruction": "✅ Action completed!",
+#                 "face_aligned": True,
+#             },
+#         )
+#         return
+
+#     # ---------------- NORMAL ----------------
+#     emit(
+#         "server_update",
+#         {
+#             "status": "IN_PROGRESS",
+#             "instruction": instruction_for(tracker.current_action),
+#             "face_aligned": False,
+#         },
+#     )
+
+
+# @socketio.on("liveness_finish")
+# def ws_finish():
+#     sid = request.sid
+#     sess = SESSIONS.get(sid)
+
+#     if not sess:
+#         emit(
+#             "server_update",
+#             {
+#                 "status": "FAILED",
+#                 "error": "session_missing",
+#             },
+#         )
+#         return
+
+#     if sess.get("passed"):
+#         emit(
+#             "server_update",
+#             {
+#                 "status": "PASSED",
+#                 "instruction": "✅ Already passed",
+#             },
+#         )
+#     else:
+#         status, meta = sess["tracker"].finalize()
+#         emit(
+#             "server_update",
+#             {
+#                 "status": "FAILED",
+#                 "instruction": "❌ Liveness FAILED",
+#                 "meta": meta,
+#             },
+#         )
+
+#     SESSIONS.pop(sid, None)
+
+
+# @socketio.on("disconnect")
+# def ws_disconnect():
+#     SESSIONS.pop(request.sid, None)
+
+# # --------------------------------------------------
+# # Run
+# # --------------------------------------------------
+
+# if __name__ == "__main__":
+#     socketio.run(
+#         app,
+#         host="127.0.0.1",
+#         port=PORT,
+#         debug=False,
+#     )
+
+
+
+
+
+
+
+
+
 from flask import Flask, jsonify, send_from_directory, request
 from flask_socketio import SocketIO, emit
 import os
@@ -154,12 +450,7 @@ import numpy as np
 import cv2
 
 from services.liveness_service import LivenessService, ActiveLivenessTracker
-from services.spoof_service import SpoofDetector
-
-
-# --------------------------------------------------
-# App setup
-# --------------------------------------------------
+from services.spoof_service import SpoofDetector   # 🔐 SPOOF ADDITION
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "dev"
@@ -167,62 +458,31 @@ app.config["SECRET_KEY"] = "dev"
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
-    async_mode="threading"  # Windows safe
+    async_mode="threading"
 )
 
 PORT = int(os.getenv("FLASK_PORT", "5002"))
 
 live_service = LivenessService()
-spoof_model = SpoofDetector()
+spoof_model = SpoofDetector()   # 🔐 SPOOF ADDITION
 
-# per-client sessions
 SESSIONS = {}
 TTL_SECONDS = 60
 
 
-# --------------------------------------------------
-# Helpers
-# --------------------------------------------------
-
 def instruction_for(action: str):
-
-    if action == "LEFT":  
-        return "Turn your head LEFT 👈"
-
-    if action == "RIGHT": 
-        return "Turn your head RIGHT 👉"
-
-    if action == "BLINK": 
-        return "Blink your eyes 👁️"
-
-    if action == "SMILE": 
-        return "Smile 🙂"
-
-    if action == "NOD":   
-        return "Nod your head up & down ⬆️⬇️"
-
+    if action == "LEFT": return "Turn your head LEFT 👈"
+    if action == "RIGHT": return "Turn your head RIGHT 👉"
+    if action == "BLINK": return "Blink your eyes 👁️"
+    if action == "SMILE": return "Smile 🙂"
+    if action == "NOD": return "Nod your head up & down ⬆️⬇️"
     return "Follow the instructions"
 
 
 def decode_jpeg_to_bgr(jpeg_bytes: bytes):
     arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    return img
+    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
-def is_face_aligned(frame):
-    h, w, _ = frame.shape
-    cx, cy = w // 2, h // 2
-
-    margin_x = w * 0.15
-    margin_y = h * 0.15
-
-    return (
-        cx > margin_x and cx < w - margin_x and
-        cy > margin_y and cy < h - margin_y
-    )
-# --------------------------------------------------
-# Routes
-# --------------------------------------------------
 
 @app.get("/")
 def index():
@@ -233,10 +493,6 @@ def index():
 def health():
     return jsonify({"ok": True, "port": PORT})
 
-
-# --------------------------------------------------
-# WebSocket
-# --------------------------------------------------
 
 @socketio.on("connect")
 def ws_connect():
@@ -249,9 +505,7 @@ def ws_connect():
 
 @socketio.on("liveness_start")
 def ws_start():
-
     sid = request.sid
-
     tracker = ActiveLivenessTracker(live_service.face_mesh)
 
     SESSIONS[sid] = {
@@ -273,55 +527,33 @@ def ws_frame(jpeg_bytes):
 
     sid = request.sid
     sess = SESSIONS.get(sid)
-
     if not sess:
         return
 
     now = time.time()
 
     # ---------------- GREEN BUFFER HOLD ----------------
-
-    # if sess.get("hold_green"):
-
-    #     if now - sess["last_action_time"] < 3:  # 3 sec buffer
-    #         emit("server_update", {
-    #             "status": "IN_PROGRESS",
-    #             "instruction": "Next action coming...",
-    #             "face_aligned": True
-    #         })
-    #         return
-    #     else:
-    #         sess["hold_green"] = False
-    #         # resume tracker
-    # ---------------- GREEN BUFFER HOLD ----------------
-
     if sess.get("hold_green"):
-
-        if now - sess["last_action_time"] < 3:  # 3 sec buffer
+        if now - sess["last_action_time"] < 3:
             emit("server_update", {
-            "status": "IN_PROGRESS",
-            "instruction": "✅ Action completed!",
-            "face_aligned": True
+                "status": "IN_PROGRESS",
+                "instruction": "✅ Action completed!",
+                "face_aligned": True
             })
             return
         else:
             sess["hold_green"] = False
-
             tracker = sess["tracker"]
 
-            # ✅ ALL ACTIONS DONE
             if tracker.current_action is None:
-
                 emit("server_update", {
                     "status": "PASSED",
                     "instruction": "✅ Liveness PASSED Successfully",
                     "face_aligned": True
                 })
-
                 SESSIONS.pop(sid, None)
                 return
 
-            # ➡️ NEXT ACTION EXISTS
             emit("server_update", {
                 "status": "IN_PROGRESS",
                 "instruction": instruction_for(tracker.current_action),
@@ -329,9 +561,7 @@ def ws_frame(jpeg_bytes):
             })
             return
 
-
     # ---------------- FRAME DECODE ----------------
-
     if isinstance(jpeg_bytes, bytearray):
         jpeg_bytes = bytes(jpeg_bytes)
 
@@ -339,65 +569,48 @@ def ws_frame(jpeg_bytes):
     if frame is None:
         return
 
-    i = sess["frames_seen"]
     sess["frames_seen"] += 1
-
-    # ✅ DEFAULT VALUES (IMPORTANT)
-    is_spoof = False
-    score = 1.0
-
-    # 🔐 SPOOF CHECK (every 5 frames)
-    if i % 5 == 0:
-        is_spoof, score = spoof_model.predict(frame)
-
-    if is_spoof:
-        emit("server_update", {
-            "status": "FAILED",
-            "instruction": "❌ Spoof detected",
-            "reason": "SPOOF_ATTACK",
-            "confidence": round(score, 3)
-        })
-        SESSIONS.pop(sid, None)
-        return
-
     tracker = sess["tracker"]
-    status, meta = tracker.update(frame, i)
 
-    
+    status, meta = tracker.update(frame, sess["frames_seen"])
+
+    # 🔐 SPOOF ADDITION (NON-INTRUSIVE)
+    landmarks = meta.get("landmarks")
+    if landmarks and sess["frames_seen"] % 3 == 0:
+        is_spoof, score = spoof_model.predict(landmarks)
+        if is_spoof:
+            emit("server_update", {
+                "status": "FAILED",
+                "instruction": "❌ Spoof detected",
+                "reason": "SPOOF_DETECTED"
+            })
+            SESSIONS.pop(sid, None)
+            return
 
     # ---------------- FAILED ----------------
-
     if status == "FAILED":
-
         emit("server_update", {
             "status": "FAILED",
             "instruction": "❌ Time up! Action not performed",
             "reason": meta
         })
-
         SESSIONS.pop(sid, None)
         return
 
     # ---------------- PASSED ----------------
-
     if status == "PASSED":
-
         emit("server_update", {
             "status": "PASSED",
             "instruction": "✅ Liveness PASSED Successfully",
             "face_aligned": True
         })
-
         SESSIONS.pop(sid, None)
         return
 
     # ---------------- ACTION COMPLETED ----------------
-
     if meta.get("action_done"):
-
         sess["hold_green"] = True
         sess["last_action_time"] = now
-
         emit("server_update", {
             "status": "IN_PROGRESS",
             "instruction": "✅ Action completed!",
@@ -406,7 +619,6 @@ def ws_frame(jpeg_bytes):
         return
 
     # ---------------- NORMAL ----------------
-
     emit("server_update", {
         "status": "IN_PROGRESS",
         "instruction": instruction_for(tracker.current_action),
@@ -414,52 +626,10 @@ def ws_frame(jpeg_bytes):
     })
 
 
-@socketio.on("liveness_finish")
-def ws_finish():
-
-    sid = request.sid
-    sess = SESSIONS.get(sid)
-
-    if not sess:
-        emit("server_update", {
-            "status": "FAILED",
-            "error": "session_missing"
-        })
-        return
-
-    if sess.get("passed"):
-
-        emit("server_update", {
-            "status": "PASSED",
-            "instruction": "✅ Already passed"
-        })
-
-    else:
-        status, meta = sess["tracker"].finalize()
-
-        emit("server_update", {
-            "status": "FAILED",
-            "instruction": "❌ Liveness FAILED",
-            "meta": meta
-        })
-
-    SESSIONS.pop(sid, None)
-
-
 @socketio.on("disconnect")
 def ws_disconnect():
     SESSIONS.pop(request.sid, None)
 
 
-# --------------------------------------------------
-# Run
-# --------------------------------------------------
-
 if __name__ == "__main__":
-
-    socketio.run(
-        app,
-        host="127.0.0.1",
-        port=PORT,
-        debug=False
-    )
+    socketio.run(app, host="127.0.0.1", port=PORT, debug=False)
