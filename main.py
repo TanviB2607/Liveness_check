@@ -464,7 +464,7 @@ socketio = SocketIO(
 PORT = int(os.getenv("FLASK_PORT", "5002"))
 
 live_service = LivenessService()
-spoof_model = SpoofDetector()   # 🔐 SPOOF ADDITION
+spoof_model = SpoofDetector()   #  SPOOF ADDITION
 
 SESSIONS = {}
 TTL_SECONDS = 60
